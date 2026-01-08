@@ -65,12 +65,7 @@ authRoute.post("/signup", async (req, res) => {
 
   const { name, email, password,role,supervisorId } = req.body;
   // console.log("ss",supervisorId)
-  if (!name || !email || !password || !role ) {
-    return res.status(400).json({
-      "success": false,
-      "error": "Invalid request schema"
-    })
-  }
+  
   try {
 
     UserType.parse({name,email,password,role})

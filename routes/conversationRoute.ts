@@ -13,7 +13,7 @@ interface Message {
     createdAt: string,
 }
 
-export const MessageMap = new Map<string,Message>();
+export const MessageMap = new Map<string,Message[]>();
 
 
 
@@ -64,7 +64,7 @@ convRoute.post("/:id/close",async(req,res)=>{
  if (conversation.status == "closed" || conversation.status == "assigned"){
          return res.status(400).json({
             success:false,
-            error:"Conversation already closed"
+            error:"Cannot reassign conversation"
         })
     }
     // await Conversation.findOneAndUpdate({_id:id},{status:"closed"});

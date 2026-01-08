@@ -45,25 +45,11 @@ wss.on("connection",async (ws,req)=>{
       role:payload.role
     }
     const role = payload.role;
-    // let conversation;
-    // if (role === "candidate"){
-    //    conversation = await Conversation.find({candidateId:userId});   
-    // }else if(role === "supervisor") {
-    //     conversation = await Conversation.find({supervisorId:userId});
-    // }else if (role === "agent"){
-    //   conversation = await Conversation.find({agentId:userId});
-    // }else {
-    //    throw Error("Invalid User"); 
-    // }
-    // const convId = conversation.id;
-    // console.log("user ws",ws.user)
+
     
     ws.send("CONNECTED")
     
-    ws.on("close",(ws)=>{
-        console.log("existed room");
-        rooms.delete(ws);
-      })
+  
       
       ws.on("message", async(data) => {
         const event = JSON.parse(data);
@@ -73,7 +59,25 @@ wss.on("connection",async (ws,req)=>{
             sendWsError(ws,"Invalid ConversationID") 
             return;
           }
-          const conversation = await Conversation.findById(eventData.conversationId)
+          const conversation = await Conversation.findById(eventData.conversationId);
+          if (!conversation) {
+          sendWsError(ws,"Conversation doesn't exist");
+          return ;
+          }
+         if (ws.user.role == "candidate" || ws.user.role == "agent" ){
+            if (ws.user.role== "agent"){
+              conversation.status = "assigned"
+             await conversation?.save(); 
+            }
+
+          }else{
+          sendWsError(ws,"Forbidden for this role");
+          return ;
+            }
+          if (conversation?.status ==="closed"){
+            sendWsError(ws,"conversation already closed") 
+            return;
+          }
           console.log("conv found",conversation)
           let payload ={
             conversationId:conversation?.id,
@@ -93,9 +97,16 @@ wss.on("connection",async (ws,req)=>{
   if (event.event === "SEND_MESSAGE"){
    const event = JSON.parse(data);
   const eventData = event.data;   
+  if (ws.user.role == "candidate" || ws.user.role == "agent" ){
+
+  }else{
+      sendWsError(ws,"Forbidden for this role");
+      return ;
+  }
+
    const room = rooms.get(`conversation:${eventData.conversationId}`)
     if (!room?.includes(ws)){
-      sendWsError(ws,"Not in Room");
+      sendWsError(ws,"You must join the conversation first");
       return ;
     }
     const message = {
@@ -104,7 +115,13 @@ wss.on("connection",async (ws,req)=>{
       content: eventData.content,
       createdAt: new Date().toISOString()
     }
-    MessageMap.set(eventData.conversationId,message);
+    if (!MessageMap.get(eventData.conversationId)){
+
+      MessageMap.set(eventData.conversationId,[]);
+    }
+    const messageArray = MessageMap.get(eventData.conversationId);
+    messageArray?.push(message);
+
     let payload = {
       conversationId: eventData.conversationId,
       senderId: ws.user.userId,
@@ -119,9 +136,46 @@ wss.on("connection",async (ws,req)=>{
         sendWsSuccess(ws,"NEW_MESSAGE",payload)
       }
     }) 
-    console.log("msg event sent")
+    console.log("msgs for this conv",MessageMap.get(eventData.conversationId))
+
+  }
+  if (event.event === "LEAVE_CONVERSATION"){
+     const event = JSON.parse(data);
+    const eventData = event.data;  
+    const conversationId = eventData.conversationId
+   
+ if (ws.user.role == "candidate" || ws.user.role == "agent" ){
+
+  }else{
+      sendWsError(ws,"Forbidden for this role");
+      return ;
   }
 
+
+   const room = rooms.get(`conversation:${eventData.conversationId}`)
+  if (!room?.includes(ws)){
+      sendWsError(ws,"You must join the conversation first");
+      return ;
+    }
+   if (!room){
+     sendWsError(ws,"Conversation doesn't exist");
+      return ;
+   }
+   console.log("members after leaving",room.length)
+   const userIndex = room.findIndex((user)=>user.user.userId == ws.user.userId);
+   room.splice(userIndex,1);
+  console.log("members after leaving",room.length)
+  if (room.length == 0){
+    rooms.delete(`conversation:${eventData.conversationId}`);
+  }
+  let payload = {
+    conversationId:eventData.conversationId
+  }
+  sendWsSuccess(ws,"LEFT_CONVERSATION",payload);
+
+
+
+  }
 }
 
 
@@ -146,6 +200,7 @@ const sendWsError = (ws:WebSocket,error:string)=>{
 
   }
   ws.send(JSON.stringify(payload))
+  
   ws.close(101,JSON.stringify(payload))
 }
 const sendWsSuccess = (ws:WebSocket,event:string,data)=>{
@@ -155,14 +210,7 @@ const sendWsSuccess = (ws:WebSocket,event:string,data)=>{
   }
   ws.send(JSON.stringify(payload));
 }
-const sendWsMessage = (ws:WebSocket,event:string,data)=>{
-  const payload ={
-    event:event,
-    data
-  }
-  // const room = rooms.get(``)
-  ws.send(JSON.stringify(payload));
-}
+
 app.get("/health", (req: express.Request, res: express.Response) => {
   return res.status(200).json({
     "health": "ok"
