@@ -63,10 +63,18 @@ convRoute.post("/:id/close",async(req,res)=>{
         })
     }
  if (conversation.status == "closed" || conversation.status == "assigned"){
-         return res.status(400).json({
+        if (conversation.status == "closed"){
+                return res.status(400).json({
             success:false,
-            error:"Cannot reassign conversation"
+            error:"Conversation already closed"
         })
+        }else{
+
+            return res.status(400).json({
+                success:false,
+                error:"Cannot reassign conversation"
+            })
+        }
     }
     // await Conversation.findOneAndUpdate({_id:id},{status:"closed"});
     conversation.status="closed";
@@ -273,7 +281,7 @@ if (agent.role !== "agent"){
     if (conversation.status === "closed"){
         return res.status(400).json({
             success:false,
-            error:"Cannot reassign agent"
+            error:"Conversation already closed"
         })
     }
 const updatedConv = await  Conversation.findOneAndUpdate({_id:conversation.id},{

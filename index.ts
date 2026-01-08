@@ -62,12 +62,13 @@ wss.on("connection",async (ws,req)=>{
         jsonParser.parse(event);
         }catch(err){
            if (err instanceof z.ZodError){
+            console.log("parser error")
              sendWsError(ws,"Invalid message format"); 
     }
         }
         const eventData = event.data;
         if (event.event === "JOIN_CONVERSATION"){
-          if (!eventData.conversationId || !mongoose.Types.ObjectId.isValid(eventData.conversationId)){
+          if (!eventData.conversationId ){
             sendWsError(ws,"Invalid ConversationID") 
             return;
           }
