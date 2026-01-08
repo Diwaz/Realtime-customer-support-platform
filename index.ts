@@ -7,14 +7,18 @@ import routes from "./routes";
 import mongoose from "mongoose";
 import url from "url";
 import { MessageMap } from "./routes/conversationRoute";
-import { Conversation, User } from "./models";
+import { Conversation, Message, User } from "./models";
 import { eventNames } from "cluster";
+import z from "zod";
 
 
 const app = express();
 
 const server = http.createServer(app);
-
+const jsonParser = z.object({
+  event: z.string(),
+  data: z.object(),
+})
 
 const wss = new WebSocketServer({
   server
@@ -53,6 +57,14 @@ wss.on("connection",async (ws,req)=>{
       
       ws.on("message", async(data) => {
         const event = JSON.parse(data);
+        try {
+
+        jsonParser.parse(event);
+        }catch(err){
+           if (err instanceof z.ZodError){
+             sendWsError(ws,"Invalid message format"); 
+    }
+        }
         const eventData = event.data;
         if (event.event === "JOIN_CONVERSATION"){
           if (!eventData.conversationId || !mongoose.Types.ObjectId.isValid(eventData.conversationId)){
@@ -61,11 +73,22 @@ wss.on("connection",async (ws,req)=>{
           }
           const conversation = await Conversation.findById(eventData.conversationId);
           if (!conversation) {
-          sendWsError(ws,"Conversation doesn't exist");
+          sendWsError(ws,"Not allowed to access this conversation");
           return ;
           }
          if (ws.user.role == "candidate" || ws.user.role == "agent" ){
+              if (ws.user.role == "candidate"){
+                  if (conversation.candidateId.toString() !== ws.user.userId){
+                  sendWsError(ws,"Not allowed to access this conversation");
+                  return ;
+                  }
+              }
+             
             if (ws.user.role== "agent"){
+                if (conversation.agentId?.toString() !== ws.user.userId){
+                  sendWsError(ws,"Not allowed to access this conversation");
+                  return ;
+                }
               conversation.status = "assigned"
              await conversation?.save(); 
             }
@@ -75,12 +98,12 @@ wss.on("connection",async (ws,req)=>{
           return ;
             }
           if (conversation?.status ==="closed"){
-            sendWsError(ws,"conversation already closed") 
+            sendWsError(ws,"Conversation already closed") 
             return;
           }
           console.log("conv found",conversation)
           let payload ={
-            conversationId:conversation?.id,
+            conversationId:conversation?.id.toString(),
             status:conversation?.status
           }
           // rooms.set(ws,`conversation:${eventData.conversationId}:`);
@@ -93,8 +116,7 @@ wss.on("connection",async (ws,req)=>{
   // ws.send(
   //  JSON.stringify({ "conv": "JOINED"})
   // )
-  }
-  if (event.event === "SEND_MESSAGE"){
+  }else if (event.event === "SEND_MESSAGE"){
    const event = JSON.parse(data);
   const eventData = event.data;   
   if (ws.user.role == "candidate" || ws.user.role == "agent" ){
@@ -110,6 +132,7 @@ wss.on("connection",async (ws,req)=>{
       return ;
     }
     const message = {
+      conversationId: eventData.conversationId,
       senderId: ws.user.userId,
       senderRole: ws.user.role,
       content: eventData.content,
@@ -122,24 +145,17 @@ wss.on("connection",async (ws,req)=>{
     const messageArray = MessageMap.get(eventData.conversationId);
     messageArray?.push(message);
 
-    let payload = {
-      conversationId: eventData.conversationId,
-      senderId: ws.user.userId,
-      senderRole: ws.user.role,
-      content: eventData.content,
-      createdAt: new Date().toISOString()
-    }
+ 
     room.forEach((user)=>{
       console.log("user id of socker",user.user.userId)
       if (user.user.userId !== ws.user.userId){
         
-        sendWsSuccess(ws,"NEW_MESSAGE",payload)
+        sendWsSuccess(ws,"NEW_MESSAGE",message)
       }
     }) 
     console.log("msgs for this conv",MessageMap.get(eventData.conversationId))
 
-  }
-  if (event.event === "LEAVE_CONVERSATION"){
+  }else if (event.event === "LEAVE_CONVERSATION"){
      const event = JSON.parse(data);
     const eventData = event.data;  
     const conversationId = eventData.conversationId
@@ -175,6 +191,70 @@ wss.on("connection",async (ws,req)=>{
 
 
 
+  }else if (event.event === "CLOSE_CONVERSATION"){
+const event = JSON.parse(data);
+  const eventData = event.data;   
+  if ( ws.user.role !== "agent" ){
+      sendWsError(ws,"Forbidden for this role");
+        return;
+  }
+  const conversation = await Conversation.findById(eventData.conversationId);
+
+  if (conversation?.agentId?.toString() !== ws.user.userId){
+    sendWsError(ws,"Not allowed to access this conversation");
+    return;
+  }
+  if (conversation?.status == "assigned"){
+
+  }else if (conversation?.status === "open"){
+    sendWsError(ws,"Conversation not yet assigned");
+    return;
+  }else{
+    sendWsError(ws,"Conversation already closed");
+    return;
+  }
+
+  const messages = MessageMap.get(eventData.conversationId);
+  if (!messages || messages.length === 0) return;
+  await Message.bulkWrite(messages.map(msg=>({
+    insertOne:{
+      document:{
+        conversationId:msg.conversationId,
+        senderId:msg.senderId,
+        senderRole:msg.senderRole,
+        content:msg.content,
+        createdAt:msg.createdAt
+      }
+    }
+  })));
+
+  conversation.status = "closed";
+  await conversation.save();
+
+const room = rooms.get(`conversation:${eventData.conversationId}`)
+    if (!room?.includes(ws)){
+      sendWsError(ws,"You must join the conversation first");
+      return ;
+    }
+    let payload = {
+      conversationId: eventData.conversationId
+    }
+ room.forEach((user)=>{
+      console.log("user id of socker",user.user.userId)
+      if (user.user.userId !== ws.user.userId){
+        
+        sendWsSuccess(ws,"CONVESATION_CLOSED",payload)
+        ws.close();
+      }
+    }) 
+
+    rooms.delete(`conversation:${eventData.conversationId}`);
+    MessageMap.delete(eventData.conversationId);
+
+
+  }else {
+      sendWsError(ws,"Unknown event");
+    return;
   }
 }
 

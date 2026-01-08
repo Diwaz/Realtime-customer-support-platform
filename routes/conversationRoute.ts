@@ -7,6 +7,7 @@ import mongoose, { Types } from "mongoose";
 const convRoute = Router();
 
 interface Message {
+    conversationId:string,
     senderId: string,
     senderRole: string,
     content: string,

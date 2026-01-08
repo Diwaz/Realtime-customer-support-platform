@@ -24,9 +24,9 @@ const UserType = z.object({
 
 })
 
-const idParser = z.object({
-  supervisorId: z.uuid(),
-})
+// const idParser = z.object({
+//   supervisorId: z.uuid(),
+// })
 type Role ="admin" | "supervisor" | "agent" | "candidate"; 
 interface JWT_PAYLOAD {
   userId: string,
