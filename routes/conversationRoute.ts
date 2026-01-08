@@ -7,13 +7,80 @@ import mongoose, { Types } from "mongoose";
 const convRoute = Router();
 
 interface Message {
-    senderId: Types.ObjectId,
+    senderId: string,
     senderRole: string,
     content: string,
-    createdAt: Date,
+    createdAt: string,
 }
 
-const MessageMap = new Map<string,Message>();
+export const MessageMap = new Map<string,Message>();
+
+
+
+
+convRoute.post("/:id/close",async(req,res)=>{
+        const id = req.params.id;
+        const payload = req.body.payload;
+
+  if (!payload.userId || !mongoose.Types.ObjectId.isValid(payload.userId)){
+        return res.status(400).json({
+            success:false,
+            error:"Invalid Schema"
+        })
+    }
+ if (!id || !mongoose.Types.ObjectId.isValid(id)){
+    console.log("failed here on valid")
+        return res.status(400).json({
+            success:false,
+            error:"ConversationId not provided"
+        })
+    }
+
+    const conversation = await Conversation.findById(id);
+     
+    if (!conversation){
+        return res.status(404).json({
+            success:false,
+            error:"Conversation not found"
+        })
+    }
+   
+    
+    if (payload.role === "admin"){
+
+    }else if(payload.role === "supervisor"){
+     if ( conversation.supervisorId.toString() !== payload.userId){
+              return res.status(403).json({
+            success:false,
+            error:"Forbidden, insufficient permissions"
+        })
+    }   
+    }else{
+              return res.status(403).json({
+            success:false,
+            error:"Forbidden, insufficient permissions"
+        })
+    }
+ if (conversation.status == "closed" || conversation.status == "assigned"){
+         return res.status(400).json({
+            success:false,
+            error:"Conversation already closed"
+        })
+    }
+    // await Conversation.findOneAndUpdate({_id:id},{status:"closed"});
+    conversation.status="closed";
+await conversation.save();
+console.log("saved conv",conversation)
+                return res.status(200).json({
+                success: true,
+                data:{
+                    "conversationId":conversation.id,
+                    "status":conversation.status,
+                }
+            })
+})
+
+
 convRoute.get("/:id",async(req,res)=>{
 
     const id = req.params.id;
@@ -34,43 +101,32 @@ convRoute.get("/:id",async(req,res)=>{
     }
 
     const conversation = await Conversation.findById(id);
-
+    
+    
     if (!conversation){
         return res.status(404).json({
             success:false,
             error:"Conversation not found"
         })
     }
+    
+    const status = conversation?.status;
 
-    // if (payload.role === "supervisor"){
-    //     if (conversation.supervisorId !== payload.userId){
-    //      return res.status(403).json({
-    //         success:false,
-    //         error:"Conversation doesn't belong to you"
-    //     })           
-    //     }    
-
-    // }
-    // if (payload.role === "candidate"){
-    //     if (conversation.candidateId !== payload.userId){
-    //         return res.status(403).json({
-    //         success:false,
-    //         error:"Conversation doesn't belong to you"
-    //     })           
-    //     }
-    // }
-    // if (payload.role === "agent"){
-        //     if (conversation.agentId !== payload.userId){
-            //         return res.status(403).json({
-                //         success:false,
-                //         error:"Conversation doesn't belong to you"
-                //     })           
-                //     }
-                // }
-                console.log("conv id",conversation.id)
+                // console.log("conv id",conversation.id)
                 const convId = new mongoose.Types.ObjectId(conversation.id)
+                let message ;
+                if (status === "closed"){
+                     message =await Message.find({conversationId:convId});
+                
+                }
+                if (status === "assigned"){
 
-                const message =await Message.findOne({conversationId:convId});
+                    message = MessageMap.get(id);
+                }
+                if (!message){
+                    message = []
+                }
+
         if (payload.role === "admin"){
             const admin = await User.findById(payload.userId);
             if (admin.role !== "admin"){
@@ -182,9 +238,9 @@ convRoute.post("/:id/assign",async(req,res)=>{
             error:"Conversation not found"
         })
     }
-    console.log("user objecct id",conversation.supervisorId)
+    // console.log("user objecct id",conversation.supervisorId)
     if (conversation.supervisorId.toString() !== payload.userId){
-        console.log("no this is not equal",userObjectId.toString())
+        // console.log("no this is not equal",userObjectId.toString())
         return res.status(403).json({
             success:false,
             error:"Conversation doesn't belong to you"
@@ -192,7 +248,7 @@ convRoute.post("/:id/assign",async(req,res)=>{
     }
     // console.log("conv status",conversation)
     const agent = await User.findById(agentId);
-    console.log("agent status",agent)
+    // console.log("agent status",agent)
     if (!agent){
          return res.status(404).json({
             success:false,
@@ -205,7 +261,7 @@ if (agent.role !== "agent"){
             error:"Non-agent User"
         })       
     }
-    console.log("agent id",agent)
+    // console.log("agent id",agent)
     // console.log("payload id",payload.userId)
     if (agent?.supervisorId?.toString() !== payload.userId){
          return res.status(403).json({
